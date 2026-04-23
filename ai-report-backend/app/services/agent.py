@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from .gemini_client import GeminiClient
 from .mcp_tools import TOOL_DECLARATIONS, execute_tool
-from .tools import fetch_ai_news, get_now_iso
+from .tools import fetch_ai_news, get_now_iso, search_ai_news
 
 
 class ReportAgent:
@@ -67,6 +67,8 @@ class ReportAgent:
                         sources.append({"title": title, "url": url or None})
         if not sources:
             sources = fallback["sources"]
+        if _is_weak_answer(answer) and sources:
+            answer = _build_grounded_answer(question=question, sources=sources)
         return {"answer": answer, "sources": sources}
 
     def _report_prompt(self, topic: str, period: str) -> str:
@@ -92,7 +94,9 @@ class ReportAgent:
     def _chat_prompt(self, question: str) -> str:
         return (
             "Answer user question about latest AI industry updates.\n"
-            "Use tools before answering whenever useful.\n"
+            "Always use tools before answering.\n"
+            "First call search_ai_news with a keyword derived from question.\n"
+            "Then call fetch_ai_news if additional context is needed.\n"
             "Return strictly valid JSON:\n"
             '{"answer": string, "sources": [{"title": string, "url": string}]}\n'
             f"Question: {question}\n"
@@ -141,7 +145,10 @@ class ReportAgent:
         }
 
     def _fallback_answer(self, question: str, news: List[Dict]) -> Dict:
-        sources = [{"title": item["title"], "url": item["url"]} for item in news[:4]]
+        keyword = _question_keyword(question)
+        focused = search_ai_news(keyword=keyword, limit=6) if keyword else []
+        source_items = focused if focused else news
+        sources = [{"title": item["title"], "url": item["url"]} for item in source_items[:5]]
         if not sources:
             sources = [{"title": "No external sources available", "url": None}]
         return {
@@ -216,3 +223,44 @@ def _safe_actions(value: object) -> List[str]:
         "Validate major claims against original source links.",
         "Update leadership with concise strategic implications.",
     ]
+
+
+def _question_keyword(question: str) -> str:
+    lowered = question.lower()
+    if any(word in lowered for word in ["funding", "raise", "series", "investment"]):
+        return "funding"
+    if any(word in lowered for word in ["launch", "model", "llm"]):
+        return "model"
+    if any(word in lowered for word in ["policy", "regulation", "law"]):
+        return "policy"
+    if any(word in lowered for word in ["security", "phishing", "attack"]):
+        return "security"
+    return "ai"
+
+
+def _is_weak_answer(answer: str) -> bool:
+    lowered = answer.lower().strip()
+    weak_phrases = [
+        "i couldn't find",
+        "i could not find",
+        "no specific",
+        "sorry",
+        "would you like to try a different keyword",
+    ]
+    return any(phrase in lowered for phrase in weak_phrases)
+
+
+def _build_grounded_answer(question: str, sources: List[Dict]) -> str:
+    top_titles = [src.get("title", "").strip() for src in sources if src.get("title")]
+    top_titles = [title for title in top_titles if title][:3]
+    if not top_titles:
+        return (
+            f"Based on recent AI updates for '{question}', there are relevant developments "
+            "across models, enterprise adoption, and market activity."
+        )
+
+    joined = "; ".join(top_titles)
+    return (
+        f"Based on current tracked AI updates for '{question}', key relevant signals include: "
+        f"{joined}. These indicate active momentum in the AI ecosystem this week."
+    )

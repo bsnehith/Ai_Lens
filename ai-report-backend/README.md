@@ -59,7 +59,8 @@ Copy `.env.example` to `.env` and set values:
 
 ```env
 GEMINI_API_KEY=your_key_here
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-2.5-flash-lite
+GEMINI_FALLBACK_MODELS=gemini-2.5-flash,gemini-3.1-flash-lite,gemini-3-flash,gemini-3.1-pro
 PORT=8000
 ALLOWED_ORIGIN=http://localhost:5173
 ```
@@ -67,6 +68,8 @@ ALLOWED_ORIGIN=http://localhost:5173
 Notes:
 
 - `GEMINI_API_KEY` is required for live LLM behavior.
+- `GEMINI_FALLBACK_MODELS` enables automatic failover if primary model is rate-limited or unavailable.
+- Backend only uses supported text models from Gemini docs: `gemini-2.5-flash-lite`, `gemini-2.5-flash`, `gemini-3.1-flash-lite`, `gemini-3-flash`, `gemini-3.1-pro`.
 - If LLM/model fails, backend returns safe fallback responses.
 - Never commit real `.env` secrets.
 
