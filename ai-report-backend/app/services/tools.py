@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Dict, List
 from xml.etree import ElementTree
@@ -63,6 +64,24 @@ def fetch_ai_news(limit: int = 20) -> List[Dict[str, str]]:
             break
 
     return deduped
+
+
+def search_ai_news(keyword: str, limit: int = 8) -> List[Dict[str, str]]:
+    """Tool: filter latest AI news by keyword."""
+    clean_keyword = (keyword or "").strip().lower()
+    if not clean_keyword:
+        return []
+    news = fetch_ai_news(limit=30)
+    matches = [item for item in news if clean_keyword in item["title"].lower()]
+    return matches[: max(1, min(limit, 15))]
+
+
+def top_ai_sources(limit: int = 5) -> List[Dict[str, str]]:
+    """Tool: return top source domains by article count."""
+    news = fetch_ai_news(limit=50)
+    counts = Counter(item["source"] for item in news)
+    ranked = counts.most_common(max(1, min(limit, 10)))
+    return [{"source": source, "count": str(count)} for source, count in ranked]
 
 
 def get_now_iso() -> str:

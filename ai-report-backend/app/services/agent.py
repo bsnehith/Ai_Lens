@@ -5,6 +5,7 @@ from typing import Dict, List
 from uuid import uuid4
 
 from .gemini_client import GeminiClient
+from .mcp_tools import TOOL_DECLARATIONS, execute_tool
 from .tools import fetch_ai_news, get_now_iso
 
 
@@ -16,8 +17,17 @@ class ReportAgent:
         news = fetch_ai_news(limit=24)
 
         fallback = self._fallback_report(topic=topic, period=period, news=news)
-        prompt = self._report_prompt(topic=topic, period=period, news=news)
-        result = self.gemini_client.generate_json(prompt=prompt, fallback=fallback)
+        prompt = self._report_prompt(topic=topic, period=period)
+        result = self.gemini_client.generate_json_with_tools(
+            user_prompt=prompt,
+            fallback=fallback,
+            tool_declarations=TOOL_DECLARATIONS,
+            tool_executor=execute_tool,
+            system_instruction=(
+                "You are an agentic AI analyst. Use function tools to gather data first, "
+                "then return strict JSON only."
+            ),
+        )
 
         # Ensure required fields even if model returns partial data.
         result["id"] = str(uuid4())
@@ -34,8 +44,16 @@ class ReportAgent:
     def answer_question(self, question: str) -> Dict:
         news = fetch_ai_news(limit=16)
         fallback = self._fallback_answer(question=question, news=news)
-        prompt = self._chat_prompt(question=question, news=news)
-        result = self.gemini_client.generate_json(prompt=prompt, fallback=fallback)
+        prompt = self._chat_prompt(question=question)
+        result = self.gemini_client.generate_json_with_tools(
+            user_prompt=prompt,
+            fallback=fallback,
+            tool_declarations=TOOL_DECLARATIONS,
+            tool_executor=execute_tool,
+            system_instruction=(
+                "You are an AI industry Q&A assistant. Use tools as needed and return strict JSON only."
+            ),
+        )
 
         answer = result.get("answer") if isinstance(result.get("answer"), str) else fallback["answer"]
         raw_sources = result.get("sources", fallback["sources"])
@@ -51,10 +69,10 @@ class ReportAgent:
             sources = fallback["sources"]
         return {"answer": answer, "sources": sources}
 
-    def _report_prompt(self, topic: str, period: str, news: List[Dict]) -> str:
+    def _report_prompt(self, topic: str, period: str) -> str:
         return (
-            "You are an AI industry analyst agent. "
-            "Use the provided latest headlines and generate strictly valid JSON with this schema:\n"
+            "Generate a periodic AI industry report and use tools for evidence collection.\n"
+            "Return strictly valid JSON with this schema:\n"
             "{"
             '"title": string, '
             '"summary": string, '
@@ -63,17 +81,22 @@ class ReportAgent:
             '"next_actions": [string]'
             "}\n\n"
             f"Topic: {topic}\nPeriod: {period}\nCurrent date: {datetime.utcnow().isoformat()}Z\n"
-            f"Headlines: {news[:20]}\n"
-            "Rules: keep summary 3-5 sentences, keep 4-6 highlights, keep 3 next_actions."
+            "Rules:\n"
+            "1) Call tools to fetch and inspect latest news.\n"
+            "2) Keep summary 3-5 sentences.\n"
+            "3) Keep 4-6 highlights.\n"
+            "4) Keep exactly 3 next_actions.\n"
+            "5) Output must be strict JSON."
         )
 
-    def _chat_prompt(self, question: str, news: List[Dict]) -> str:
+    def _chat_prompt(self, question: str) -> str:
         return (
-            "You are an AI industry Q&A agent. Return strictly valid JSON:\n"
+            "Answer user question about latest AI industry updates.\n"
+            "Use tools before answering whenever useful.\n"
+            "Return strictly valid JSON:\n"
             '{"answer": string, "sources": [{"title": string, "url": string}]}\n'
             f"Question: {question}\n"
-            f"Headlines context: {news[:16]}\n"
-            "Rules: answer in plain concise English, no markdown."
+            "Rules: answer in plain concise English, no markdown, max 6 lines."
         )
 
     def _fallback_report(self, topic: str, period: str, news: List[Dict]) -> Dict:
